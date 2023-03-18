@@ -1,0 +1,58 @@
+    # Project definitions (do not edit)
+Task: SiamangSimpleV2
+scorer: Wim Pouw
+date: Jan31
+multianimalproject: false
+identity:
+
+    # Project path (change when moving around)
+project_path: H:\Projects\SiamangJaderpark_LCRVproject\DeepLabCut\projects\SiamangSimpleV2-Wim
+  Pouw-2023-01-31
+
+    # Annotation data set configuration (and individual video cropping parameters)
+video_sets:
+  ? H:\Projects\SiamangJaderpark_LCRVproject\DeepLabCut\projects\SiamangSimpleV2-Wim
+    Pouw-2023-01-31\videos\snip_gopro_orange_opp_18_June_session1_15_16.mp4
+  : crop: 0, 318, 0, 258
+bodyparts:
+- upper_thorax
+- lower_bum
+
+    # Fraction of video to start/stop when extracting frames for labeling/refinement
+start: 0
+stop: 1
+numframes2pick: 250
+
+    # Plotting configuration
+skeleton:
+- - upper_thorax
+  - lower_bum
+
+skeleton_color: red
+pcutoff: 0.6
+dotsize: 3
+alphavalue: 0.7
+colormap: rainbow
+
+    # Training,Evaluation and Analysis configuration
+TrainingFraction:
+- 0.95
+iteration: 0
+default_net_type: resnet_50
+default_augmenter: default
+snapshotindex: -1
+batch_size: 8
+
+    # Cropping Parameters (for analysis and outlier frame detection)
+cropping: false
+    #if cropping is true for analysis, then set the values here:
+x1: 0
+x2: 640
+y1: 277
+y2: 624
+
+    # Refinement configuration (parameters from annotation dataset configuration also relevant in this stage)
+corner2move2:
+- 50
+- 50
+move2corner: true
