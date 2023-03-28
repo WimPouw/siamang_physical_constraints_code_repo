@@ -1,0 +1,383 @@
+---
+title: "Cross-modal constraints in multimodal vocalizations in Siamang (Syndactylus symphalangus)"
+author: "Pouw (wim.pouw@donders.ru.nl), Kehy, Gamba, Ravignani"
+date: "`r Sys.Date()`"
+output:
+  prettydoc::html_pretty:
+    theme: Tactile
+    highlight: github
+---
+
+This Rmarkdown (version 3) provides the means to recreate the figures and results section for "Cross-modal constraints in multimodal vocalizations in Siamang  (Syndactylus symphalangus)". Each code chunk will refer either to a table or a figure, or the models reported for the main results.
+
+```{r, include = FALSE, message =FALSE, warning=FALSE}
+library(knitr)        #R function extras
+library(ggplot2)      #main plotting
+library(gridExtra)    #plotting extras
+library(stringr)      #text wrangling
+library(RColorBrewer) #plotting color extras
+library(dplyr)        #data wranglong
+library(ggdist)       #ggplot extras
+library(systemfonts)  #fonts plotting
+library(ggbeeswarm)   #plotting extras
+library(tuneR)        #acoustics
+library(scales)       #rescaling functions
+library(cowplot)      #plotting functions
+library(dplyr)        #plotting functions
+library(nlme)         #mixed regression nlme?
+
+################SET FOLDERING AND DATA FILES
+knitr::opts_chunk$set(cache.extra = knitr::rand_seed)
+knitr::opts_knit$set(root.dir =normalizePath("."))
+basefolder <- dirname(normalizePath(".")) #make sure to set the wd to source file location
+proc_fol <- paste0(basefolder, '/R_scripts/processing_and_analyses/processed_data/')
+times_fol <- paste0(proc_fol, 'time_series/')
+data <- read.csv(paste0(proc_fol, 'pdatav3.csv')) #this dataset is produced by the processing script
+data$angles <- as.character(data$angles)        
+audiofol <- paste0(basefolder, '/original_data/audio/')
+audiofiles <- list.files(audiofol)
+
+#this is the dashboard folder
+appfolder <- paste0(basefolder, '/python/dashboard_app/')
+
+#check the number motion categories
+table(data$locomote_posture)
+
+############SOME variable relabeling
+manual <- c('110_LOCOMOTE_Drop_forelimb_swing', '26_LOCOMOTE_Bimanual_pull_up', '31_LOCOMOTE_Brachiate', '4_Bimanual_forelimb_suspend', '54_LOCOMOTE_flexed_elbow_forelimb_swing', '56_LOCOMOTE_forelimb_swing')
+
+data$locomote_limb <- ifelse(data$locomote_posture %in% manual, 'forelimb only', 'other')
+  #order the categories as manual first
+order_loco <- c(unique(data$locomote_posture[data$locomote_limb=='forelimb only']), unique(data$locomote_posture[data$locomote_limb=='other' & data$locomote_posture!= 'undefined']), 'undefined')
+ordered <- c('forelimb swing', 'brachiate', 'forelimb suspend', 'drop forelimb swing', 'bimanual pull up', 'flexed elbow forelimb swing', 'vertical climb', 'pulse climb', 'flexed bipedal walk', 'clamber walk', 'orthograde clamber', 'undefined')
+
+# perform log and scaling transformations as discussed in the paper
+datalog <- data
+datalog$maxacc <- log(datalog$maxacc)
+datalog$maxacc <- scale(datalog$maxacc)[,1]
+datalog$acc_nearest_env_peak <- log(datalog$acc_nearest_env_peak)
+datalog$acc_nearest_env_peak <- scale(datalog$acc_nearest_env_peak)[,1]
+
+########################################################## DATA FOR DASHBOARD
+  #we are going to save some dashboard data
+appdata <- cbind.data.frame(datalog$maxacc,datalog$acc_nearest_env_peak, datalog$acc_nearest_f0_peak,
+                            datalog$videonames, datalog$individual)
+
+colnames(appdata) <- c('peak_acc', 'peak_amp', 'peak_F0', 'vidnames', 'individual')
+write.csv(appdata, paste0(appfolder, 'data.csv'))
+```
+
+# Code for Figure 1
+  
+## Bar graph for figure 1
+
+```{r, message =FALSE, warning=FALSE}
+#Order the locomotions in terms of forelimb only or not
+datalog$locomotion_type <- NA
+for(i in 1:length(order_loco))
+{datalog$locomotion_type[datalog$locomote_posture==order_loco[i]] <- ordered[i]}
+datalog$locomotion_type <- factor(datalog$locomotion_type, levels = ordered) #make factor levels
+
+################################create a distribution graph for locomotion types
+df1 <- datalog %>%
+  group_by(locomotion_type) %>%
+  summarise(counts = n())
+df1 <- data.frame(df1)
+#also add the super categories
+fore <- cbind('forelimb only', as.numeric(sum(datalog$locomote_limb=='forelimb only')))
+oth  <- cbind('other', as.numeric(sum(datalog$locomote_limb=='other')))
+sumdat <- rbind(fore, oth)
+colnames(sumdat) <- colnames(df1)
+df <- rbind(df1, sumdat)
+df$counts <- as.numeric(df$counts)
+
+#########################################creat a bar plot
+A <- ggplot(df, aes(x = locomotion_type, y = counts, fill = locomotion_type)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = counts), vjust = -0.3) + 
+  theme_cowplot()+theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+A
+```
+
+## Raincloudplots for Figure 1
+```{r, message =FALSE, warning=FALSE}
+#######################################make some distributions for locomotion type 
+a <- ggplot(datalog, aes(x = locomote_limb, y = maxacc)) + 
+  ggdist::stat_halfeye(
+    adjust = .5, 
+    width = .6, 
+    .width = 0, 
+    justification = -.3, 
+    point_colour = NA) + 
+  geom_boxplot(
+    width = .25, 
+    outlier.shape = NA
+  ) +
+  geom_point(
+    size = 1.3,
+    alpha = .3,
+    position = position_jitter(
+      seed = 1, width = .1
+    )
+  ) + 
+  coord_cartesian(xlim = c(1.2, NA), clip = "off")+theme_cowplot()+ coord_flip()
+
+b <- ggplot(datalog, aes(x = locomote_limb, y = acc_nearest_env_peak)) + 
+  ggdist::stat_halfeye(
+    adjust = .5, 
+    width = .6, 
+    .width = 0, 
+    justification = -.3, 
+    point_colour = NA) + 
+  geom_boxplot(
+    width = .25, 
+    outlier.shape = NA
+  ) +
+  geom_point(
+    size = 1.3,
+    alpha = .3,
+    position = position_jitter(
+      seed = 1, width = .1
+    )
+  ) + 
+  coord_cartesian(xlim = c(1.2, NA), clip = "off")+theme_cowplot()+ coord_flip()
+
+grid.arrange(a, b)
+```
+
+# Code for Table 1
+
+## Duration of events, general, individual movement type
+```{r, message =FALSE, warning=FALSE}
+datalog %>% 
+    summarize(
+        'mean' = mean(duration),
+        'sd' = sd(duration),
+        'lower_ci' = t.test(duration, mu = mean(duration))$conf.int[1],
+        'upper_ci' = t.test(duration, mu = mean(duration))$conf.int[2]
+    )
+
+datalog  %>% group_by(individual)  %>% 
+    summarize(
+        'mean' = mean(duration),
+        'sd' = sd(duration),
+        'lower_ci' = t.test(duration, mu = mean(duration))$conf.int[1],
+        'upper_ci' = t.test(duration, mu = mean(duration))$conf.int[2]
+    )
+
+datalog  %>% group_by(locomote_limb)  %>% 
+    summarize(
+        'mean' = mean(duration),
+        'sd' = sd(duration),
+        'lower_ci' = t.test(duration, mu = mean(duration))$conf.int[1],
+        'upper_ci' = t.test(duration, mu = mean(duration))$conf.int[2]
+    )
+
+
+datalog %>% 
+    summarize(
+        'mean' = mean(synchrony),
+        'sd' = sd(synchrony),
+        'lower_ci' = t.test(synchrony, mu = mean(synchrony))$conf.int[1],
+        'upper_ci' = t.test(synchrony, mu = mean(synchrony))$conf.int[2]
+    )
+
+datalog  %>% group_by(individual)  %>% 
+    summarize(
+        'mean' = mean(synchrony),
+        'sd' = sd(synchrony),
+        'lower_ci' = t.test(synchrony, mu = mean(synchrony))$conf.int[1],
+        'upper_ci' = t.test(synchrony, mu = mean(synchrony))$conf.int[2]
+    )
+
+datalog  %>% group_by(locomote_limb)  %>% 
+    summarize(
+        'mean' = mean(synchrony),
+        'sd' = sd(synchrony),
+        'lower_ci' = t.test(synchrony, mu = mean(synchrony))$conf.int[1],
+        'upper_ci' = t.test(synchrony, mu = mean(synchrony))$conf.int[2]
+    )
+
+
+datalog %>% 
+    summarize(
+        'mean' = mean(synchrony),
+        'sd' = sd(synchrony),
+        'lower_ci' = t.test(synchrony, mu = mean(synchrony))$conf.int[1],
+        'upper_ci' = t.test(synchrony, mu = mean(synchrony))$conf.int[2]
+    )
+
+datalog  %>% group_by(individual)  %>% 
+    summarize(
+        'mean' = mean(synchrony),
+        'sd' = sd(synchrony),
+        'lower_ci' = t.test(synchrony, mu = mean(synchrony))$conf.int[1],
+        'upper_ci' = t.test(synchrony, mu = mean(synchrony))$conf.int[2]
+    )
+
+datalog  %>% group_by(locomote_limb)  %>% 
+    summarize(
+        'mean' = mean(synchrony),
+        'sd' = sd(synchrony),
+        'lower_ci' = t.test(synchrony, mu = mean(synchrony))$conf.int[1],
+        'upper_ci' = t.test(synchrony, mu = mean(synchrony))$conf.int[2]
+    )
+
+
+
+datalog %>% group_by(individual) %>% 
+    summarize(
+        'mean' = mean(acc_nearest_env_peak),
+        'sd' = sd(acc_nearest_env_peak),
+        'lower_ci' = t.test(acc_nearest_env_peak, mu = mean(acc_nearest_env_peak))$conf.int[1],
+        'upper_ci' = t.test(acc_nearest_env_peak, mu = mean(acc_nearest_env_peak))$conf.int[2]
+    )
+
+datalog %>% group_by(individual) %>% 
+    summarize(
+        'mean' = mean(maxacc),
+        'sd' = sd(maxacc),
+        'lower_ci' = t.test(maxacc, mu = mean(acc_nearest_env_peak))$conf.int[1],
+        'upper_ci' = t.test(maxacc, mu = mean(acc_nearest_env_peak))$conf.int[2]
+    )
+
+datalog %>% group_by(locomote_limb) %>% 
+    summarize(
+        'mean' = mean(acc_nearest_env_peak),
+        'sd' = sd(acc_nearest_env_peak),
+        'lower_ci' = t.test(acc_nearest_env_peak, mu = mean(acc_nearest_env_peak))$conf.int[1],
+        'upper_ci' = t.test(acc_nearest_env_peak, mu = mean(acc_nearest_env_peak))$conf.int[2]
+    )
+
+datalog %>% group_by(locomote_limb) %>% 
+    summarize(
+        'mean' = mean(maxacc),
+        'sd' = sd(maxacc),
+        'lower_ci' = t.test(maxacc, mu = mean(acc_nearest_env_peak))$conf.int[1],
+        'upper_ci' = t.test(maxacc, mu = mean(acc_nearest_env_peak))$conf.int[2]
+    )
+
+
+```
+
+# Code for figure 2
+```{r, message = FALSE, warning =FALSE}
+library(ggplot2)
+library(gridExtra)
+library(cowplot)
+library(plotly)
+cols <- brewer.pal(n = 6, name = "Set1")
+
+# the relation between body acceleration and the nearest peak in the envelope
+A <- ggplot(datalog, aes(x=maxacc, y = acc_nearest_env_peak))+ geom_point(color=cols[1])+geom_smooth(method="lm", color=cols[2])+theme_cowplot()+ylab('nearest peak log envelope')+xlab('max log acceleration \n(normalized by body size)')+ ggtitle('Main results')
+a <-  ggplot(datalog, aes(x=maxacc, y = acc_nearest_env_peak, color = individual))+ geom_point()+geom_smooth(method="lm")+theme_bw()+
+    scale_colour_brewer(palette='Set1')+theme_cowplot()+ylab('nearest peak log envelope')+xlab('max log acceleration \n(normalized by body size)')+ ggtitle('Individual differences')
+b <-  ggplot(datalog, aes(x=maxacc, y = acc_nearest_env_peak, color = angles))+ geom_point()+geom_smooth(method="lm")+theme_bw()+
+    scale_colour_brewer(palette='Set1')+theme_cowplot()+ylab('nearest peak log envelope')+xlab('max log acceleration \n(normalized by body size)')+ ggtitle('Measurement differences')
+B <- grid.arrange(a,b,nrow=1)
+grid.arrange(A,B)
+
+# the relation between body acceleraiton and the nearest peak in the envelope
+c <-  ggplot(datalog, aes(x=maxacc, y = acc_nearest_env_peak, color=locomote_limb))+ geom_point()+geom_smooth(method="lm", alpha = 0.1)+theme_bw()+
+    scale_colour_brewer(palette='Dark2')+theme_cowplot()+ylab('nearest peak log envelope')+xlab('max log acceleration \n(normalized by body size)')+ ggtitle('locomotion differences')
+c
+```
+
+## Main result plot with outlier removed
+```{r, message = FALSE, warning =FALSE}
+#without outlier?
+A <- ggplot(datalog[datalog$maxacc<2.6,], aes(x=maxacc, y = acc_nearest_env_peak))+ geom_point(color=cols[1])+geom_smooth(method="lm", color=cols[2])+theme_cowplot()+ylab('nearest peak log envelope')+xlab('max log acceleration \n(normalized by body size)')
+A
+```
+
+
+# Mixed regression model for main results
+
+## Model comparison with and without acceleration to predict nearest peak envelope
+```{r, message = FALSE, warning =FALSE}
+basemodel <- lme(acc_nearest_env_peak ~ 1, random = ~ 1 | individual, data=datalog, method = "ML")
+mixmodel <- lme(acc_nearest_env_peak ~ maxacc, random = ~ 1 | individual, data=datalog, method = "ML")
+anova(basemodel, mixmodel)
+
+#note that this model with random slopes does not converge
+#mixmodel <- lme(acc_nearest_env_peak ~ maxacc, random = ~ maxacc | individual, data=datalog, method = "ML")
+```
+
+## Model coefficients of main results acceleration and peak envelope
+```{r, message = FALSE, warning =FALSE}
+summary(mixmodel)
+intervals(mixmodel) #95CI's
+```
+
+## Simple correlation
+```{r, warning=FALSE, message = FALSE}
+cor.test(datalog$maxacc, datalog$acc_nearest_env_peak)
+```
+
+## Simple correlation with outlier removed
+```{r, warning=FALSE, message = FALSE}
+cor.test(datalog$maxacc[datalog$maxacc<2.6], datalog$acc_nearest_env_peak[datalog$maxacc<2.6])
+```
+
+## Possible confounds/moderators: Comparison of main model with interactions with angles or locomotion type
+```{r, warning=FALSE, message = FALSE}
+#mixed regression nlme?
+mixmodel_cams <- lme(acc_nearest_env_peak ~ maxacc*angles, random = ~ 1 | individual, data=datalog, method = "ML")
+anova(mixmodel,mixmodel_cams)
+
+#mixed regression nlme?
+mixmodel_loctypes <- lme(acc_nearest_env_peak ~ maxacc*locomote_limb, random = ~ 1 | individual, data=datalog, method = "ML")
+anova(mixmodel,mixmodel_loctypes)
+
+```
+
+### Auxilliary code: Some code to reproduce time series information as shown in figure 1
+```{r, warning=FALSE, message = FALSE}
+library(stringr)
+times <- list.files(times_fol)
+acc <- env <- time <- individual <- vid  <- acc_cont <- vector()
+
+#lets loop over the timeseries and add them in one object, so we can plot them easily later
+for(i in times)
+{
+  ts <- read.csv(paste0(times_fol, i)) #load in time series data
+  time <- c(time, ts$time_ms)
+  id <- str_replace(i, '_TS.csv', '') #remove TS label
+  acc_cont <- c(acc_cont, abs(ts$acc)) #add a |acceleration|
+  acc <- c(acc, rep(max(abs(ts$acc)), times = nrow(ts))) #add the max acc
+  env <- c(env, ts$envelope) #add a envelope info
+  vid <- c(vid, rep(i, length(ts$env))) #add informatio about the concerning day
+  individ <- unique(data$individual[data$videonames==id])[1] #the individual
+  inv <- rep(ifelse(individ == 'Baju', 'Baju', 'Fajar'), times = length(ts$env)) #recode
+  individual <- c(individual, inv) #add to vector
+}
+tso<- cbind.data.frame(time, env,vid, acc_cont, individual) #one big time series objecy
+
+##########################function for plotting waveform
+getwaveformdat <- function(wavlocation)
+{
+  rel_ac <- readWave(wavlocation)
+  snd = rel_ac@left
+  ms <-  seq(from = 1000/48000, to = length(snd)*(1000/48000), by = 1000/48000)  # check samplingrate sound!!!
+  snd = (snd - mean(snd))/1000
+  d <- cbind.data.frame(ms, snd)
+}
+
+#plot sounds
+soundts <- subset(tso, tso$vid=='14_August_session1_0_1_TS.csv')
+soundts$ms <- soundts$time-min(soundts$time)
+
+d <- getwaveformdat(paste0(audiofol, audiofiles[31]))
+plotsound1 <- ggplot(d) + geom_path(aes(x=ms, y=snd), color = "#d70000ff", alpha = 0.5) + theme_bw()+ ylab("waveform")+xlim(min(soundts$ms), max(soundts$ms)-500)+theme_cowplot()+geom_vline(xintercept=soundts$ms[which.max(soundts$env)], linetype='dashed')
+
+envplot <- ggplot(soundts, aes(x=ms)) + geom_path(aes(y=env), color = "#111104ff", size =2, alpha = 0.5) + theme_bw()+ ylab("a.u.")+theme_cowplot()+geom_vline(xintercept=soundts$ms[which.max(soundts$acc_cont)], linetype='dashed', color = '#d70000ff', size = 1.5)+xlim(min(soundts$ms), max(soundts$ms)-500)+geom_point(x=soundts$ms[which.max(soundts$env)], y=max(soundts$env), color = '#ffac00ff', size= 3)
+
+accplot <- ggplot(soundts, aes(x=ms)) + geom_path(aes(y=acc_cont), color = "#111104ff", size =2, alpha = 0.5) +
+geom_point(x=soundts$ms[which.max(soundts$acc_cont)], y=max(soundts$acc_cont), color = '#d70000ff', size= 3)+geom_vline(xintercept=soundts$ms[which.max(soundts$acc_cont)], linetype='dashed')+theme_cowplot()+xlim(min(soundts$ms), max(soundts$ms)-500)
+
+plot_grid(plotsound1, envplot, accplot, ncol = 1, align = "v")
+
+
+```
+
+
