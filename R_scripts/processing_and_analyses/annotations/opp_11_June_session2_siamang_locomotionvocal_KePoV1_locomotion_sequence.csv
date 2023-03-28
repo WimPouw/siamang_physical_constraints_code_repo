@@ -1,0 +1,8 @@
+"Begin Time - msec","End Time - msec","Sequence","Sequence_number","Sequence_individual","Sequence_movement"
+963320,965100,""," 1","Baju","4_Bimanual_forelimb_suspend"
+1011140,1012800,""," 2","Baju","67_LOCOMOTE_pulse_climb"
+1082760,1084800,""," 3","Baju","31_LOCOMOTE_Brachiate"
+1140900,1143060,""," 4","Baju","112_LOCOMOTE_Clamber_walk"
+1204240,1206260,"","5","Baju","56_LOCOMOTE_forelimb_swing"
+1273140,1274860,"","6","Baju","35_LOCOMOTE_Flexed_bipedal_walk"
+
