@@ -12,6 +12,7 @@ library(pracma)               #time series functions and signal processing
 library(tuneR)                #acoustics
 library(phonTools)            #acoustics
 library(FactoMineR)           #PCA and other data science functions
+library(mpmi)                 # mutual information
 
 ##############################INFO
 #CONTACT: wim.pouw@donders.ru.nl
@@ -22,26 +23,27 @@ library(FactoMineR)           #PCA and other data science functions
 
 
 #########Folder and files
-parentfolder <- dirname(dirname(rstudioapi::getSourceEditorContext()$path))  #what is the current folder?
+parentfolder <- dirname(dirname(dirname(rstudioapi::getSourceEditorContext()$path)))  #what is the current folder?
 
 audiofold  <- paste0(parentfolder, '/original_data/audio/')
-mtfold  <- paste0(parentfolder, '/original_data/motion_tracking/')
+mtfold  <- paste0(parentfolder, '/snippets_processed_MT_audio/motion_tracking/')
 audiofiles <- list.files(audiofold) #this contains all the audio wherefore we handchecked whether the motion tracking is ok (others are excluded)
 motfiles <- list.files(mtfold, pattern= '*filtered.csv')
-annotations <- paste0(parentfolder, '/R_scripts/processing_and_analyses/annotations/')
-proc_fol <- paste0(parentfolder, '/R_scripts/processing_and_analyses/processed_data/')
+annotations <- paste0(parentfolder, '/scripts_auto/analyses_scripts_R/annotations/')
+proc_fol <- paste0(parentfolder, '/scripts_auto/analyses_scripts_R/processed_data/')
 timeseriesfol <- paste0(proc_fol, 'time_series/')
 #latest trained model with deeplabcut
 dlcmodel <- 'DLC_resnet50_SiamangSimpleV2Jan31shuffle1_500000_filtered'
 
-#just check what days we need to process (instead having for each day 4 cameras or less)
+#just check what snippets we need to process
 mf <- str_replace(motfiles, paste0(dlcmodel, ".csv"), "")
 mf <- str_replace(mf, 'snip_gopro_orange_opp_', "")
 mf <- str_replace(mf, 'snip_gopro_blue_opp_', "")
 mf <- str_replace(mf, 'snip_gopro_cyan_opp_', "")
 mf <- str_replace(mf, 'snip_gopro_green_opp_', "")
-#unique(mf) will now give the unique days that we need to process 
 
+# we simulate a time series for random comparison
+set.seed(123)
 #####################################################FUNCTIONS OPEN
 pca.speed <- function(mat) #take a matrix with x,y position data of multiple cameras
 {
@@ -90,9 +92,29 @@ make.event.identifiers <- function(runsval, originaltime)
   events <<- load.in.event(originaltime, runs)
 }
 
-#initialize variables for main dataset
-videonames<- duration<- angles<- individual<-locomote_posture<- acc_nearest_env_peak<- acc_nearest_f0_peak<-
-maxf0<- synchrony<- maxacc <- maxamp <- vector()
+# compute a mutual information at a lag
+calculate_mutual_info_at_lag <- function(x, y, lag) {
+  if (lag >= 0) {
+    x_lagged <- c(rep(NA, times=lag), x[1:(length(x)-lag)]) #x leads y
+    y_lagged <- y[!is.na(x_lagged)]
+    x_lagged <- x_lagged[!is.na(x_lagged)]
+  } else {
+    x_lagged <-  c(x[abs(lag):length(x)], rep(NA, times=abs(lag))) #x follows y
+    y_lagged <- y[!is.na(x_lagged )]
+    x_lagged <- x_lagged[!is.na(x_lagged)]
+  }
+  
+  # Calculate mutual information
+  mut <- cmi.pw(x_lagged, y_lagged)
+  
+  return(mut$mi)
+}
+
+#variables to be made 
+maxamp <- maxacc <- maxdec <- synchrony <- envatmaxacc <- accatmaxF0  <-accatmaxenv <- 
+  accatmaxF0<- maxf0  <- videonames <- videonamestracked<- individual <- acc_nearest_env_peak <- angles <- angles <- 
+  acc_nearest_f0_peak <-  dec_nearest_env_peak <- duration <- dec_nearest_envpeak <- dec_nearest_f0_peak <- locomote_posture <-
+  mutinfomax<-mutinfomaxlag <- mutinfomax_ran <- mutinfomaxlag_ran <- vector()
 
 #####################################################MAIN PROCESSING ROUTINE
 for(snippet in unique(mf))
@@ -119,8 +141,7 @@ for(snippet in unique(mf))
   envelope  <- as.vector(abs(hilb)) #take the complex modulus
   envelope <- dplR::hanning(x= envelope, n = snd$fs/12) #12 hertz hanning window
   envelope[is.na(envelope)] <- 0 #make sure that undefined edges get a value of 0, instead of NA
-  
-  ############################################KINEMATICS
+############################################KINEMATICS
   #get the cameras we need to process
   cameras_to_process  <- motfiles[which(mf == snippet)]
   
@@ -233,45 +254,96 @@ for(snippet in unique(mf))
     time_ms <- seq(1000/100, (length(f0))*1000/100, by=1000/100)
     f0d <- cbind.data.frame(time_ms, f0)
     
-    ################################################merge acoustics 
+    #merge acoustics 
     acoustics <- merge(envelope, f0d, by.x ='time_ms', by.y = 'time_ms',  all = TRUE)
     
-    ######################################local peaks in env
+    #local peaks in env
     peaksenv <- findpeaks(acoustics$envelope)
     timepeaksenv <- acoustics$time_ms[peaksenv[,2]]
   
-    #####################################peaks in F0
+    #peaks in F0
     peaksf0 <- findpeaks(acoustics$f0)
     timepeaksf0 <- acoustics$time_ms[peaksf0[,2]]
-    #Merging motion tracking and acoustics
-    merged <- merge(acoustics, mt, by.x='time_ms', by.y = 'time_ms', all=TRUE)
-    merged$speed <- na.approx(merged$speed, x= merged$time_ms) #since sampling times will not perfectly align, we linearly interpolate
-    merged$acc <- na.approx(merged$acc, x= merged$time_ms)     #since sampling times will not perfectly align, we linearly interpolate
-    merged$envelope[is.na(merged$envelope)] <-0                #for trailing un-interpolatable values at time series edges, we replace with 0
-    merged$f0[is.na(merged$f0)] <-0                            #for trailing uninterpolatable values at time series edges, we replace with 0
-     #also save some timeseries
-     write.csv(merged, paste0(timeseriesfol, snippet, '_TS.csv'))
+    
+  #Merging motion tracking and acoustics
+   merged <- merge(acoustics, mt, by.x='time_ms', by.y = 'time_ms', all=TRUE)
+   merged$speed <- na.approx(merged$speed, x= merged$time_ms) #since sampling times will not perfectly align, we linearly interpolate
+   merged$acc <- na.approx(merged$acc, x= merged$time_ms)     #since sampling times will not perfectly align, we linearly interpolate
+   merged$envelope[is.na(merged$envelope)] <-0                #for trailing un-interpolatable values at time series edges, we replace with 0
+   merged$f0[is.na(merged$f0)] <-0                            #for trailing uninterpolatable values at time series edges, we replace with 0
+   #plot(merged$envelope)
+   #also save some timeseres
+   write.csv(merged, paste0(timeseriesfol, snippet, '_TS.csv'))
    
-  #global maximum in |acceleration|
-  xacc <- max(abs(merged$acc),na.rm=TRUE)
-   #time of max acc
-  acctime <- merged$time_ms[which.max(abs(merged$acc))] #time of max acceleration
-  #make dataset by filling vectors per event (i.e., in this iteration of the loop)
-  acc_nearest_env_peak <- c(acc_nearest_env_peak, peaksenv[,1][which.min(timepeaksenv-acctime)])    #add the nearest peak in envelope next to peak acceleration
-  acc_nearest_f0_peak <- c(acc_nearest_f0_peak, peaksf0[,1][which.min(timepeaksf0-acctime)])  #add the nearest peak F0
-  duration <- c(duration, max(merged$time_ms))                        #duration of the event
-  locomote_posture <- c(locomote_posture, loco)                       #annotated posture
-  maxamp <- c(maxamp,max(merged$env,na.rm=TRUE))                      #global max amplitude
-  maxacc <-  c(maxacc,xacc)                                           #global maximum acceleration
-  synchrony <- c(synchrony, min(abs(timepeaksenv-acctime)))           #time between global max acceleration and synchrony
-  maxf0 <- c(maxf0, F0m)                                              #global max F0
-  individual <- c(individual, anno[,5])                               #individual (baju or fajar)
-  videonames <- c(videonames, snippet)                                #add videonames
-  angles <- c(angles, number_of_angles)                               #number of angles available
-    }
+   xacc <- max(abs(merged$acc),na.rm=TRUE)
+   xdec <- min(merged$acc, na.rm=TRUE)
+   #synchrony
+   acctime <- merged$time_ms[which.max(abs(merged$acc))]
+   dectime <- merged$time_ms[which.min(merged$acc)]
+   maxtime <- merged$time_ms[which.max(merged$env)] #at what time was there a max in the envelope
+   
+    #add the nearest peak in envelope next to peak acceleration
+   acc_nearest_env_peak <- c(acc_nearest_env_peak, peaksenv[,1][which.min(timepeaksenv-acctime)])
+   acc_nearest_f0_peak <- c(acc_nearest_f0_peak, peaksf0[,1][which.min(timepeaksf0-acctime)])
+   
+    #deceleration and nearest peak
+   dec_nearest_env_peak <- c(dec_nearest_env_peak, peaksenv[,1][which.min(timepeaksenv-dectime)])
+   dec_nearest_f0_peak <- c(dec_nearest_f0_peak, peaksf0[,1][which.min(timepeaksf0-dectime)])
+
+  ############################################ Calculate average mutual information
+  x <- scale(merged$acc)[,1]
+  y <- scale(merged$envelope)[,1]
+  lents <- length(x)
+  # lets also generate a random time series
+  # Parameters of the original series
+  mean_original <- mean(x) # close to 0, z-scaled
+  sd_original <- sd(x) # close to 1, z-scaled
+  acf_original <- acf(x, plot = FALSE)$acf[2]  # Autocorrelation at lag 1
+  
+  # Simulate a new time series with the same mean, sd, and autocorrelation
+  simulated_series <- arima.sim(model = list(order = c(1, 0, 0), ar = acf_original),
+                                n = lents, mean = mean_original, sd = sd_original)
+  
+  # loop through 1:100 lags
+    # so for positive values, it means how much does acceleration predict envelope
+    # so for negative values, it means how much does envelope predict acceleration
+  mutvalues <- mutvalues_ran <- vector()
+  lags <- seq(-20,20,1)
+  for(lag in lags)
+  {
+    mutvalues<- c(mutvalues, calculate_mutual_info_at_lag(x,y,lag))
+    mutvalues_ran <- c(mutvalues_ran, calculate_mutual_info_at_lag(simulated_series,y,lag))
+  }
+  
+  mut <- max(mutvalues)
+  mutlag <- lags[which.max(mutvalues)]*10 # each index is 10 ms
+  mut_ran <- max(mutvalues_ran)
+  mutlag_ran <- lags[which.max(mutvalues_ran)]*10 # each index is 10 ms
+
+  #####################################################
+  
+  #make dataset
+  duration <- c(duration, max(merged$time_ms))
+  locomote_posture <- c(locomote_posture, loco)
+  accatmaxenv <-c(accatmaxenv, merged$acc[which.max(merged$env)])
+  accatmaxF0 <-c(accatmaxF0, merged$acc[which.max(merged$f0)])
+  maxamp <- c(maxamp,max(merged$env,na.rm=TRUE))
+  maxacc <-  c(maxacc,xacc)
+  maxdec <- c(maxdec,xdec)
+  synchrony <- c(synchrony, min(abs(timepeaksenv-acctime)))
+  maxf0 <- c(maxf0, F0m)
+  individual <- c(individual, anno[,5])
+  videonames <- c(videonames, snippet)
+  angles <- c(angles, number_of_angles)
+  mutinfomax <- c(mutinfomax, mut)
+  mutinfomaxlag <- c(mutinfomaxlag, mutlag)
+  mutinfomax_ran <- c(mutinfomax_ran, mut_ran)
+  mutinfomaxlag_ran <- c(mutinfomaxlag_ran, mutlag_ran)
+  }
 }
-#gather the dataset
-data <- cbind.data.frame(videonames, duration, angles, individual,locomote_posture, acc_nearest_env_peak, acc_nearest_f0_peak,
-                         maxf0, synchrony, maxacc,maxamp)
-#save this dataset for input as statistical analyses
-write.csv(data, paste0(proc_fol, 'pdatav3.csv'))
+
+data <- cbind.data.frame(videonames, duration, angles, individual,locomote_posture, acc_nearest_env_peak, acc_nearest_f0_peak, 
+                         dec_nearest_env_peak, dec_nearest_f0_peak,
+                         maxf0, synchrony, maxacc,maxdec, maxamp, accatmaxF0, accatmaxenv, mutinfomax,mutinfomax_ran,  mutinfomaxlag, mutinfomaxlag_ran)
+
+write.csv(data, paste0(proc_fol, 'pdatav4.csv'))
