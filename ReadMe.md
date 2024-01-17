@@ -1,5 +1,5 @@
 # Repository info
-This repository contains all associated code and data supporting the manuscript 'Cross-modal constraints in multimodal vocalizations in Siamang (*Syndactylus symphalangus*) 
+This repository contains all associated code and data supporting the manuscript 'Amplitude Increases of Vocalizations are Associated with Body Accelerations in Siamang (*Syndactylus symphalangus*) 
 ' (Pouw, Kehy, Gamba, Ravignani).
 
 # Folder info
